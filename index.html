@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tracking Your Bills | Money.Reframed</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'money-reframed-v1';
+        const apiKey = ""; 
+
+        let user = null;
+        let expenses = [];
+        let savings = [];
+        let recurring = [];
+        let monthlyGoal = 1000;
+        let myChart = null;
+        let isDarkMode = false;
+
+        const initAuth = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        };
+
+        onAuthStateChanged(auth, (u) => {
+            user = u;
+            if (user) setupDataListener();
+        });
+
+        const setupDataListener = () => {
+            if (!user) return;
+            const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'data');
+            onSnapshot(userDocRef, (docSnap) => {
+                const data = docSnap.exists() ? docSnap.data() : { expenses: [], savings: [], recurring: [], goal: 1000 };
+                expenses = data.expenses || [];
+                savings = data.savings || [];
+                recurring = data.recurring || [];
+                monthlyGoal = data.goal || 1000;
+                document.getElementById('goal-input').value = monthlyGoal;
+                renderUI();
+            });
+        };
+
+        const saveToCloud = async (newData) => {
+            if (!user) return;
+            const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'data');
+            await setDoc(userDocRef, newData, { merge: true });
+        };
+
+        window.toggleDarkMode = () => {
+            isDarkMode = !isDarkMode;
+            document.documentElement.classList.toggle('dark', isDarkMode);
+            document.body.classList.toggle('dark-theme', isDarkMode);
+            renderUI(); 
+        };
+
+        window.scanReceipt = async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const loadingOverlay = document.getElementById('ai-loading');
+            loadingOverlay.classList.remove('hidden');
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                const base64Data = reader.result.split(',')[1];
+                const prompt = "Analyze receipt: Extract total amount, category (Food, Transport, Health, Beauty, Grocery, Wellbeing, Leisure), and a short note. JSON only: {\"amount\": 0, \"category\": \"\", \"note\": \"\"}";
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64Data } }] }] })
+                    });
+                    const resData = await response.json();
+                    const result = JSON.parse(resData.candidates?.[0]?.content?.parts?.[0]?.text.replace(/```json|```/g, ""));
+                    document.getElementById('amount').value = result.amount;
+                    document.getElementById('category').value = result.category;
+                    document.getElementById('note').value = result.note;
+                } catch (err) { console.error(err); } finally { loadingOverlay.classList.add('hidden'); }
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.addExpense = async (e) => {
+            e.preventDefault();
+            const amount = parseFloat(document.getElementById('amount').value);
+            const category = document.getElementById('category').value;
+            const note = document.getElementById('note').value;
+            const newEntry = { id: Date.now(), amount, category, note, date: new Date().toISOString(), day: new Date().toLocaleDateString(undefined, { weekday: 'short' }) };
+            await saveToCloud({ expenses: [newEntry, ...expenses], savings, recurring, goal: monthlyGoal });
+            document.getElementById('expense-form').reset();
+        };
+
+        window.addRecurring = async (e) => {
+            e.preventDefault();
+            const title = document.getElementById('recurring-title').value;
+            const amount = parseFloat(document.getElementById('recurring-amount').value);
+            const frequency = document.getElementById('recurring-frequency').value;
+            const newRec = { id: Date.now(), title, amount, frequency };
+            await saveToCloud({ expenses, savings, recurring: [newRec, ...recurring], goal: monthlyGoal });
+            document.getElementById('recurring-form').reset();
+        };
+
+        window.deleteRecurring = async (id) => {
+            const updated = recurring.filter(r => r.id !== id);
+            await saveToCloud({ expenses, savings, recurring: updated, goal: monthlyGoal });
+        };
+
+        window.addSavingGoal = async (e) => {
+            e.preventDefault();
+            const title = document.getElementById('saving-title').value;
+            const target = parseFloat(document.getElementById('saving-target').value);
+            const current = parseFloat(document.getElementById('saving-current').value || 0);
+            const newSaving = { id: Date.now(), title, target, current };
+            await saveToCloud({ expenses, savings: [newSaving, ...savings], recurring, goal: monthlyGoal });
+            document.getElementById('savings-form').reset();
+        };
+
+        window.updateSaving = async (id, increment) => {
+            const updated = savings.map(s => s.id === id ? { ...s, current: Math.max(0, s.current + increment) } : s);
+            await saveToCloud({ expenses, savings: updated, recurring, goal: monthlyGoal });
+        };
+
+        window.deleteSaving = async (id) => {
+            const updated = savings.filter(s => s.id !== id);
+            await saveToCloud({ expenses, savings: updated, recurring, goal: monthlyGoal });
+        };
+
+        window.exportData = () => {
+            let csvContent = "data:text/csv;charset=utf-8,Date,Amount,Category,Note\n";
+            expenses.forEach(e => {
+                csvContent += `${e.date},${e.amount},${e.category},"${e.note || ''}"\n`;
+            });
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "money_reframed_data.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
+        function getStartOfWeek(date) {
+            const d = new Date(date);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday start
+            return new Date(d.setDate(diff)).setHours(0, 0, 0, 0);
+        }
+
+        function renderUI() {
+            const now = new Date();
+            
+            // -- CALCULATE MONTHLY LOAD (Calendar Month: 1st to Last Day) --
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
+            
+            const monthlyVariableSpent = expenses.filter(e => {
+                const d = new Date(e.date).getTime();
+                return d >= startOfMonth && d <= endOfMonth;
+            }).reduce((sum, e) => sum + e.amount, 0);
+
+            const totalRecurringMonthly = recurring.reduce((sum, r) => {
+                // If weekly, multiply by 4.33 for monthly forecast. If monthly, use as is.
+                return sum + (r.frequency === 'weekly' ? r.amount * 4.33 : r.amount);
+            }, 0);
+
+            const grandMonthlyTotal = monthlyVariableSpent + totalRecurringMonthly;
+            const monthlyPercent = Math.min((grandMonthlyTotal / monthlyGoal) * 100, 100);
+            
+            document.getElementById('goal-progress').style.width = `${monthlyPercent}%`;
+            document.getElementById('spent-label').innerText = `$${grandMonthlyTotal.toFixed(2)}`;
+            document.getElementById('goal-label').innerText = `$${monthlyGoal}`;
+
+            // -- CALCULATE WEEKLY LOAD (Monday to Sunday) --
+            const startOfWeek = getStartOfWeek(now);
+            const endOfWeek = startOfWeek + (7 * 24 * 60 * 60 * 1000) - 1;
+            
+            const weeklyVariableSpent = expenses.filter(e => {
+                const d = new Date(e.date).getTime();
+                return d >= startOfWeek && d <= endOfWeek;
+            }).reduce((sum, e) => sum + e.amount, 0);
+
+            const weeklyRecurringFixed = recurring.reduce((sum, r) => {
+                // If weekly, use as is. If monthly, divide by 4.33 for weekly average forecast.
+                return sum + (r.frequency === 'weekly' ? r.amount : r.amount / 4.33);
+            }, 0);
+            const grandWeeklyTotal = weeklyVariableSpent + weeklyRecurringFixed;
+            document.getElementById('weekly-spent-label').innerText = `$${grandWeeklyTotal.toFixed(2)}`;
+
+            // Recurring List UI
+            const recList = document.getElementById('recurring-list');
+            recList.innerHTML = recurring.length ? '' : '<p class="text-[10px] opacity-40 py-2">No recurring bills yet</p>';
+            recurring.forEach(r => {
+                const div = document.createElement('div');
+                div.className = 'flex justify-between items-center mb-2 text-xs text-gray-500 py-1 border-b border-gray-100 border-opacity-10';
+                const freqTag = r.frequency === 'weekly' ? 'w' : 'm';
+                div.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="text-[8px] bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded uppercase font-bold text-gray-400">${freqTag}</span>
+                        <span>${r.title} ($${r.amount})</span>
+                    </div>
+                    <button onclick="deleteRecurring(${r.id})" class="text-red-300 opacity-50 hover:opacity-100">✕</button>
+                `;
+                recList.appendChild(div);
+            });
+
+            // History UI
+            const historyList = document.getElementById('history-list');
+            historyList.innerHTML = expenses.length ? '' : '<p class="text-center text-xs opacity-40 py-8">No entries ✨</p>';
+            expenses.slice(0, 8).forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'flex justify-between items-center p-3 rounded-2xl bg-white bg-opacity-30 border border-white border-opacity-20 mb-3';
+                div.innerHTML = `<div><div class="flex items-center gap-2"><span class="font-bold text-sm text-gray-600 dark:text-gray-300">$${item.amount.toFixed(2)}</span><span class="text-[9px] uppercase tracking-wider text-gray-400 font-bold">${item.category}</span></div><p class="text-[10px] text-gray-500">${item.note || '-'}</p></div><span class="text-[10px] text-gray-400">${item.day}</span>`;
+                historyList.appendChild(div);
+            });
+
+            // Savings UI
+            const savingsList = document.getElementById('savings-list');
+            savingsList.innerHTML = savings.length ? '' : '<p class="text-center text-xs opacity-40 py-4 mb-4">No goals yet ✨</p>';
+            savings.forEach(s => {
+                const sPercent = Math.min((s.current / s.target) * 100, 100);
+                const div = document.createElement('div');
+                div.className = 'pastel-card p-6 mb-6 flex gap-6 items-center';
+                div.innerHTML = `
+                    <div class="relative w-16 h-24 bg-white bg-opacity-20 border-2 border-white border-opacity-40 rounded-b-2xl rounded-t-lg overflow-hidden flex-shrink-0">
+                        <div class="absolute bottom-0 left-0 w-full bg-yellow-200 bg-opacity-40 transition-all duration-1000 ease-out flex flex-wrap-reverse justify-center content-start p-1 gap-1" style="height: ${sPercent}%">
+                             ${Array.from({length: Math.min(Math.floor(sPercent / 5), 15)}).map(() => `<div class="w-2 h-2 rounded-full bg-yellow-400 shadow-sm border border-yellow-500 border-opacity-20 animate-pulse"></div>`).join('')}
+                        </div>
+                        <div class="absolute inset-0 flex items-center justify-center pointer-events-none text-[8px] font-bold text-gray-400 opacity-60">${Math.round(sPercent)}%</div>
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex justify-between items-start mb-2">
+                            <div><h3 class="text-sm font-semibold text-gray-600 dark:text-gray-300">${s.title}</h3><p class="text-[10px] text-gray-400">$${s.current} / $${s.target}</p></div>
+                            <button onclick="deleteSaving(${s.id})" class="text-gray-300 hover:text-red-200 text-xs">✕</button>
+                        </div>
+                        <div class="flex gap-2 mt-4">
+                            <button onclick="updateSaving(${s.id}, 10)" class="text-[10px] bg-white bg-opacity-60 px-3 py-1.5 rounded-xl border border-gray-100 dark:bg-gray-800 dark:border-gray-700">+ $10</button>
+                            <button onclick="updateSaving(${s.id}, 50)" class="text-[10px] bg-white bg-opacity-60 px-3 py-1.5 rounded-xl border border-gray-100 dark:bg-gray-800 dark:border-gray-700">+ $50</button>
+                        </div>
+                    </div>
+                `;
+                savingsList.appendChild(div);
+            });
+
+            // Chart Update
+            const ctx = document.getElementById('spendingChart').getContext('2d');
+            const cats = ['Food', 'Transport', 'Health', 'Beauty', 'Grocery', 'Wellbeing', 'Leisure'];
+            const totals = cats.map(c => expenses.filter(e => e.category === c).reduce((s, curr) => s + curr.amount, 0));
+            if (myChart) myChart.destroy();
+            myChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: { labels: cats, datasets: [{ data: totals, backgroundColor: ['#e8d7d7', '#d8e8e0', '#e0e4f1', '#f1e0ec', '#f1eee0', '#e0f1ef', '#ececec'], borderWidth: 0 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, cutout: '82%' }
+            });
+        }
+
+        window.updateGoal = async () => {
+            const newGoal = parseFloat(document.getElementById('goal-input').value);
+            await saveToCloud({ goal: newGoal, expenses, savings, recurring });
+        };
+
+        document.getElementById('current-date-display').innerText = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+        initAuth();
+    </script>
+    <style>
+        :root { --bg: #f8f9fb; --card: rgba(255, 255, 255, 0.4); --text: #6b7280; --border: rgba(255,255,255,0.6); }
+        .dark-theme { --bg: #1a1a24; --card: rgba(45, 45, 60, 0.4); --text: #a1a1aa; --border: rgba(255,255,255,0.1); }
+        body { font-family: 'Quicksand', sans-serif; background-color: var(--bg); color: var(--text); transition: background-color 0.4s ease; }
+        .pastel-card { background: var(--card); backdrop-filter: blur(15px); border: 1px solid var(--border); border-radius: 24px; box-shadow: 0 4px 15px rgba(0,0,0,0.01); }
+        .input-soft { background: rgba(255, 255, 255, 0.8); border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; font-size: 0.875rem; color: #4b5563; }
+        .dark-theme .input-soft { background: rgba(30, 30, 45, 0.8); border-color: #333; color: #eee; }
+        .btn-main { background: #e8d7d7; border-radius: 14px; transition: 0.3s; color: #7c6a6a; }
+        .dark-theme .btn-main { background: #3d3d4d; color: #d8c8c8; }
+        .hidden { display: none; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #e8d7d7; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-4 flex flex-col items-center">
+
+    <div id="ai-loading" class="hidden fixed inset-0 z-50 flex flex-col items-center justify-center bg-black bg-opacity-20 backdrop-blur-md">
+        <div class="w-10 h-10 rounded-full border-2 border-t-pink-200 border-gray-100 animate-spin mb-4"></div>
+        <p class="text-xs font-medium">Scanning Receipt...</p>
+    </div>
+
+    <div class="w-full max-w-md">
+        <header class="flex justify-between items-start mb-10 mt-6 px-2">
+            <div class="text-left">
+                <h1 class="text-xl font-semibold text-gray-400 tracking-widest uppercase">Tracking Your Bills</h1>
+                <p id="current-date-display" class="text-[10px] opacity-40 uppercase tracking-tighter font-bold"></p>
+            </div>
+            <button onclick="toggleDarkMode()" class="p-2 rounded-full bg-white bg-opacity-20 hover:bg-opacity-40 transition-all">
+                <svg id="theme-icon" class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+            </button>
+        </header>
+
+        <!-- Main Budget - Monthly -->
+        <div class="pastel-card p-8 mb-4">
+            <div class="flex justify-between items-end mb-4">
+                <div>
+                    <p class="text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold mb-1">Total Monthly Load</p>
+                    <p class="text-3xl font-light text-gray-600 dark:text-gray-200"><span id="spent-label">$0</span> <span class="text-sm opacity-30">/ <span id="goal-label">$1000</span></span></p>
+                </div>
+                <input type="number" id="goal-input" onchange="updateGoal()" class="w-16 text-right bg-transparent border-b border-gray-100 text-xs focus:outline-none text-gray-400" title="Set Budget Limit">
+            </div>
+            <div class="w-full h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                <div id="goal-progress" class="h-full transition-all duration-1000 ease-in-out" style="width: 0%; background-color: #d8e8e0;"></div>
+            </div>
+        </div>
+
+        <!-- Weekly Summary Section -->
+        <div class="pastel-card p-6 mb-8 border-t-4 border-[#d8e8e0]">
+            <p class="text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold mb-1">Total Weekly Forecast</p>
+            <div class="flex justify-between items-center">
+                <p class="text-2xl font-light text-gray-600 dark:text-gray-200" id="weekly-spent-label">$0</p>
+                <p class="text-[8px] text-gray-400 uppercase italic">Mon - Sun Current Week</p>
+            </div>
+        </div>
+
+        <!-- RECURRING BILLS -->
+        <div class="pastel-card p-6 mb-8">
+            <h2 class="text-[10px] font-bold opacity-30 tracking-[0.15em] uppercase mb-4 text-center">Fixed Commitments</h2>
+            <div id="recurring-list" class="mb-4 max-h-32 overflow-y-auto px-1"></div>
+            <form id="recurring-form" onsubmit="addRecurring(event)" class="space-y-2">
+                <div class="flex gap-2">
+                    <input type="text" id="recurring-title" required placeholder="Service" class="flex-1 input-soft focus:outline-none text-xs">
+                    <input type="number" id="recurring-amount" required placeholder="$" class="w-16 input-soft focus:outline-none text-xs">
+                </div>
+                <div class="flex gap-2">
+                    <select id="recurring-frequency" class="flex-1 input-soft focus:outline-none text-xs">
+                        <option value="monthly">Billed Monthly</option>
+                        <option value="weekly">Billed Weekly</option>
+                    </select>
+                    <button type="submit" class="px-6 btn-main text-xs font-bold">+</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- RECORD TRANSACTION -->
+        <div class="pastel-card p-8 mb-8">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-[10px] font-bold opacity-30 tracking-[0.15em] uppercase">Scan Receipt ✨</h2>
+                <label class="cursor-pointer text-[10px] text-gray-400 bg-white bg-opacity-50 dark:bg-gray-800 px-4 py-1.5 rounded-full border border-gray-100 dark:border-gray-700">
+                    <span>Scan Receipt ✨</span>
+                    <input type="file" accept="image/*" class="hidden" onchange="scanReceipt(event)">
+                </label>
+            </div>
+            <form id="expense-form" onsubmit="addExpense(event)" class="space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <input type="number" id="amount" step="0.01" required placeholder="0.00" class="input-soft focus:outline-none">
+                    <select id="category" class="input-soft focus:outline-none">
+                        <option value="Food">🍲 Food</option>
+                        <option value="Transport">🚗 Transport</option>
+                        <option value="Health">💊 Health</option>
+                        <option value="Beauty">✨ Beauty</option>
+                        <option value="Grocery">🛒 Grocery</option>
+                        <option value="Wellbeing">🧘 Wellbeing</option>
+                        <option value="Leisure">🎨 Leisure</option>
+                    </select>
+                </div>
+                <input type="text" id="note" placeholder="What's this for?" class="w-full input-soft focus:outline-none">
+                <button type="submit" class="w-full py-4 btn-main font-semibold text-sm tracking-wide">Add Entry</button>
+            </form>
+        </div>
+
+        <!-- ADULTING TAX SUMMARY -->
+        <div class="mb-12">
+            <div class="text-center mb-6">
+                <h2 class="text-sm font-bold text-gray-500 uppercase tracking-widest">Adulting Tax</h2>
+                <p class="text-[9px] text-gray-400 opacity-60 uppercase tracking-tighter italic">Everyday Expenses</p>
+            </div>
+            <div class="pastel-card p-8 mb-8 text-center">
+                <div class="h-44 relative"><canvas id="spendingChart"></canvas></div>
+            </div>
+            <div class="pastel-card p-8">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-[10px] font-bold opacity-30 tracking-[0.15em] uppercase">Latest Activity</h2>
+                    <button onclick="exportData()" class="text-[9px] font-bold opacity-40 uppercase hover:opacity-100 flex items-center gap-1">
+                        Export CSV ↓
+                    </button>
+                </div>
+                <div id="history-list"></div>
+            </div>
+        </div>
+
+        <!-- ERA FUNDING GOALS -->
+        <div class="pastel-card p-8 mb-8">
+            <h2 class="text-[10px] font-bold opacity-30 tracking-[0.15em] uppercase mb-4">Start New Saving Goal</h2>
+            <form id="savings-form" onsubmit="addSavingGoal(event)" class="space-y-4">
+                <input type="text" id="saving-title" required placeholder="Glow Up / Holiday / Canon Event" class="w-full input-soft focus:outline-none">
+                <div class="grid grid-cols-2 gap-3">
+                    <input type="number" id="saving-target" required placeholder="Target Amt" class="input-soft focus:outline-none">
+                    <input type="number" id="saving-current" placeholder="Starting Amt" class="input-soft focus:outline-none">
+                </div>
+                <button type="submit" class="w-full py-3 bg-[#d8e8e0] rounded-xl text-[#6a7c72] font-semibold text-xs tracking-wide">Create Jar</button>
+            </form>
+        </div>
+
+        <div class="mb-12">
+            <div class="text-center mb-8">
+                <h2 class="text-sm font-bold text-gray-500 uppercase tracking-widest">Era Funding</h2>
+                <p class="text-[9px] text-gray-400 opacity-60 uppercase tracking-tighter italic">Glow Up, Canon Event or Emergency funds</p>
+            </div>
+            <div id="savings-list"></div>
+        </div>
+
+        <footer class="text-center pb-20">
+            <p class="text-[10px] opacity-20 uppercase tracking-[0.3em] mb-2">Cloud Synced • AI Powered</p>
+            <p class="text-xs font-semibold text-gray-300 italic">created by yours truly : Money.Reframed.</p>
+        </footer>
+    </div>
+
+</body>
+</html>
