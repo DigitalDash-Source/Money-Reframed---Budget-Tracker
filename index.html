@@ -41,13 +41,9 @@
         // Initialize Authentication
         const initAuth = async () => {
             try {
-                // Background silent sign-in
                 await signInAnonymously(auth);
             } catch (error) {
                 console.error("Firebase Auth failed:", error);
-                if (error.code === 'auth/configuration-not-found') {
-                    console.warn("Anonymous auth not enabled in console.");
-                }
             }
         };
 
@@ -167,6 +163,8 @@
         }
 
         function renderUI() {
+            if (!document.getElementById('spent-label')) return;
+
             const now = new Date();
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
             const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
@@ -202,32 +200,32 @@
             document.getElementById('weekly-spent-label').innerText = `$${grandWeeklyTotal.toFixed(2)}`;
 
             const recList = document.getElementById('recurring-list');
-            recList.innerHTML = recurring.length ? '' : '<p class="text-[10px] opacity-40 py-2">No recurring bills yet</p>';
+            recList.innerHTML = recurring.length ? '' : '<p class="text-[10px] text-gray-400 py-2">No recurring bills yet</p>';
             recurring.forEach(r => {
                 const div = document.createElement('div');
-                div.className = 'flex justify-between items-center mb-2 text-xs text-gray-500 py-1 border-b border-gray-100 border-opacity-10';
+                div.className = 'flex justify-between items-center mb-2 text-xs text-gray-700 dark:text-gray-400 py-1 border-b border-gray-200 dark:border-gray-800 border-opacity-50';
                 const freqTag = r.frequency === 'weekly' ? 'w' : 'm';
                 div.innerHTML = `
                     <div class="flex items-center gap-2">
-                        <span class="text-[8px] bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded uppercase font-bold text-gray-400">${freqTag}</span>
+                        <span class="text-[8px] bg-gray-200 dark:bg-gray-800 px-1.5 py-0.5 rounded uppercase font-bold text-gray-500">${freqTag}</span>
                         <span>${r.title} ($${r.amount})</span>
                     </div>
-                    <button onclick="deleteRecurring(${r.id})" class="text-red-300 opacity-50 hover:opacity-100">✕</button>
+                    <button onclick="deleteRecurring(${r.id})" class="text-red-400 opacity-60 hover:opacity-100">✕</button>
                 `;
                 recList.appendChild(div);
             });
 
             const historyList = document.getElementById('history-list');
-            historyList.innerHTML = expenses.length ? '' : '<p class="text-center text-xs opacity-40 py-8">No entries ✨</p>';
+            historyList.innerHTML = expenses.length ? '' : '<p class="text-center text-xs text-gray-400 py-8">No entries ✨</p>';
             expenses.slice(0, 8).forEach(item => {
                 const div = document.createElement('div');
                 div.className = 'flex justify-between items-center p-3 rounded-2xl bg-white bg-opacity-30 border border-white border-opacity-20 mb-3';
-                div.innerHTML = `<div><div class="flex items-center gap-2"><span class="font-bold text-sm text-gray-600 dark:text-gray-300">$${item.amount.toFixed(2)}</span><span class="text-[9px] uppercase tracking-wider text-gray-400 font-bold">${item.category}</span></div><p class="text-[10px] text-gray-500">${item.note || '-'}</p></div><span class="text-[10px] text-gray-400">${item.day}</span>`;
+                div.innerHTML = `<div><div class="flex items-center gap-2"><span class="font-bold text-sm text-gray-800 dark:text-gray-300">$${item.amount.toFixed(2)}</span><span class="text-[9px] uppercase tracking-wider text-gray-500 font-bold">${item.category}</span></div><p class="text-[10px] text-gray-600 dark:text-gray-500">${item.note || '-'}</p></div><span class="text-[10px] text-gray-500">${item.day}</span>`;
                 historyList.appendChild(div);
             });
 
             const savingsList = document.getElementById('savings-list');
-            savingsList.innerHTML = savings.length ? '' : '<p class="text-center text-xs opacity-40 py-4 mb-4">No goals yet ✨</p>';
+            savingsList.innerHTML = savings.length ? '' : '<p class="text-center text-xs text-gray-400 py-4 mb-4">No goals yet ✨</p>';
             savings.forEach(s => {
                 const sPercent = Math.min((s.current / s.target) * 100, 100);
                 const div = document.createElement('div');
@@ -237,31 +235,34 @@
                         <div class="absolute bottom-0 left-0 w-full bg-yellow-200 bg-opacity-40 transition-all duration-1000 ease-out flex flex-wrap-reverse justify-center content-start p-1 gap-1" style="height: ${sPercent}%">
                              ${Array.from({length: Math.min(Math.floor(sPercent / 5), 15)}).map(() => `<div class="w-2 h-2 rounded-full bg-yellow-400 shadow-sm border border-yellow-500 border-opacity-20 animate-pulse"></div>`).join('')}
                         </div>
-                        <div class="absolute inset-0 flex items-center justify-center pointer-events-none text-[8px] font-bold text-gray-400 opacity-60">${Math.round(sPercent)}%</div>
+                        <div class="absolute inset-0 flex items-center justify-center pointer-events-none text-[8px] font-bold text-gray-500 opacity-60">${Math.round(sPercent)}%</div>
                     </div>
                     <div class="flex-1">
                         <div class="flex justify-between items-start mb-2">
-                            <div><h3 class="text-sm font-semibold text-gray-600 dark:text-gray-300">${s.title}</h3><p class="text-[10px] text-gray-400">$${s.current} / $${s.target}</p></div>
-                            <button onclick="deleteSaving(${s.id})" class="text-gray-300 hover:text-red-200 text-xs">✕</button>
+                            <div><h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">${s.title}</h3><p class="text-[10px] text-gray-500">$${s.current} / $${s.target}</p></div>
+                            <button onclick="deleteSaving(${s.id})" class="text-gray-400 hover:text-red-300 text-xs">✕</button>
                         </div>
                         <div class="flex gap-2 mt-4">
-                            <button onclick="updateSaving(${s.id}, 10)" class="text-[10px] bg-white bg-opacity-60 px-3 py-1.5 rounded-xl border border-gray-100 dark:bg-gray-800 dark:border-gray-700">+ $10</button>
-                            <button onclick="updateSaving(${s.id}, 50)" class="text-[10px] bg-white bg-opacity-60 px-3 py-1.5 rounded-xl border border-gray-100 dark:bg-gray-800 dark:border-gray-700">+ $50</button>
+                            <button onclick="updateSaving(${s.id}, 10)" class="text-[10px] bg-white bg-opacity-60 px-3 py-1.5 rounded-xl border border-gray-200 dark:bg-gray-800 dark:border-gray-700 text-gray-700 dark:text-gray-300">+ $10</button>
+                            <button onclick="updateSaving(${s.id}, 50)" class="text-[10px] bg-white bg-opacity-60 px-3 py-1.5 rounded-xl border border-gray-200 dark:bg-gray-800 dark:border-gray-700 text-gray-700 dark:text-gray-300">+ $50</button>
                         </div>
                     </div>
                 `;
                 savingsList.appendChild(div);
             });
 
-            const ctx = document.getElementById('spendingChart').getContext('2d');
-            const cats = ['Food', 'Transport', 'Health', 'Beauty', 'Grocery', 'Wellbeing', 'Leisure'];
-            const totals = cats.map(c => expenses.filter(e => e.category === c).reduce((s, curr) => s + curr.amount, 0));
-            if (myChart) myChart.destroy();
-            myChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: { labels: cats, datasets: [{ data: totals, backgroundColor: ['#e8d7d7', '#d8e8e0', '#e0e4f1', '#f1e0ec', '#f1eee0', '#e0f1ef', '#ececec'], borderWidth: 0 }] },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, cutout: '82%' }
-            });
+            const chartEl = document.getElementById('spendingChart');
+            if (chartEl) {
+                const ctx = chartEl.getContext('2d');
+                const cats = ['Food', 'Transport', 'Health', 'Beauty', 'Grocery', 'Wellbeing', 'Leisure'];
+                const totals = cats.map(c => expenses.filter(e => e.category === c).reduce((s, curr) => s + curr.amount, 0));
+                if (myChart) myChart.destroy();
+                myChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: { labels: cats, datasets: [{ data: totals, backgroundColor: ['#e8d7d7', '#d8e8e0', '#e0e4f1', '#f1e0ec', '#f1eee0', '#e0f1ef', '#ececec'], borderWidth: 0 }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, cutout: '82%' }
+                });
+            }
         }
 
         window.updateGoal = async () => {
@@ -270,16 +271,37 @@
         };
 
         window.onload = () => {
-            document.getElementById('current-date-display').innerText = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+            // --- REFERRER GUARD ---
+            const allowedReferrer = 'instagram.com'; 
+            if (!document.referrer || !document.referrer.includes(allowedReferrer)) {
+                document.body.innerHTML = `
+                    <div style="display:flex; flex-direction:column; height:100vh; align-items:center; justify-content:center; font-family:'Quicksand', sans-serif; color:#374151; text-align:center; padding:40px; background:#f8f9fb;">
+                        <div style="background:white; padding:40px; border-radius:32px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
+                            <h1 style="font-size:24px; font-weight:600; margin-bottom:16px; color:#111827;">Private Access ✨</h1>
+                            <p style="font-size:14px; line-height:1.6; margin-bottom:24px; color:#4b5563;">
+                                This tracking tool is exclusive to our community.
+                            </p>
+                            <a href="https://www.instagram.com/Money.Reframed" style="display:inline-block; background:#e8d7d7; color:#7c6a6a; padding:12px 24px; border-radius:14px; text-decoration:none; font-weight:600; font-size:14px;">
+                                Go and follow : Money.Reframed now!
+                            </a>
+                        </div>
+                    </div>`;
+                return; // Stop further initialization
+            }
+
+            const dateDisplay = document.getElementById('current-date-display');
+            if (dateDisplay) {
+                dateDisplay.innerText = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+            }
             initAuth();
         };
     </script>
     <style>
-        :root { --bg: #f8f9fb; --card: rgba(255, 255, 255, 0.4); --text: #6b7280; --border: rgba(255,255,255,0.6); }
+        :root { --bg: #f8f9fb; --card: rgba(255, 255, 255, 0.4); --text: #374151; --border: rgba(255,255,255,0.6); }
         .dark-theme { --bg: #1a1a24; --card: rgba(45, 45, 60, 0.4); --text: #a1a1aa; --border: rgba(255,255,255,0.1); }
         body { font-family: 'Quicksand', sans-serif; background-color: var(--bg); color: var(--text); transition: background-color 0.4s ease; }
         .pastel-card { background: var(--card); backdrop-filter: blur(15px); border: 1px solid var(--border); border-radius: 24px; box-shadow: 0 4px 15px rgba(0,0,0,0.01); }
-        .input-soft { background: rgba(255, 255, 255, 0.8); border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; font-size: 0.875rem; color: #4b5563; }
+        .input-soft { background: rgba(255, 255, 255, 0.8); border: 1px solid #d1d5db; border-radius: 12px; padding: 12px; font-size: 0.875rem; color: #1f2937; }
         .dark-theme .input-soft { background: rgba(30, 30, 45, 0.8); border-color: #333; color: #eee; }
         .btn-main { background: #e8d7d7; border-radius: 14px; transition: 0.3s; color: #7c6a6a; }
         .dark-theme .btn-main { background: #3d3d4d; color: #d8c8c8; }
@@ -292,37 +314,37 @@
     <div class="w-full max-w-md">
         <header class="flex justify-between items-start mb-10 mt-6 px-2">
             <div class="text-left">
-                <h1 class="text-xl font-semibold text-gray-400 tracking-widest uppercase">Tracking Your Bills</h1>
-                <p id="current-date-display" class="text-[10px] opacity-40 uppercase tracking-tighter font-bold"></p>
+                <h1 class="text-xl font-semibold text-gray-500 dark:text-gray-400 tracking-widest uppercase">Tracking Your Bills</h1>
+                <p id="current-date-display" class="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-tighter font-bold"></p>
             </div>
             <button onclick="toggleDarkMode()" class="p-2 rounded-full bg-white bg-opacity-20 hover:bg-opacity-40 transition-all">
-                <svg id="theme-icon" class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                <svg id="theme-icon" class="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
             </button>
         </header>
 
         <div class="pastel-card p-8 mb-4">
             <div class="flex justify-between items-end mb-4">
                 <div>
-                    <p class="text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold mb-1">Total Monthly Load</p>
-                    <p class="text-3xl font-light text-gray-600 dark:text-gray-200"><span id="spent-label">$0</span> <span class="text-sm opacity-30">/ <span id="goal-label">$1000</span></span></p>
+                    <p class="text-[9px] uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400 font-bold mb-1">Total Monthly Load</p>
+                    <p class="text-3xl font-light text-gray-800 dark:text-gray-200"><span id="spent-label">$0</span> <span class="text-sm opacity-30">/ <span id="goal-label">$1000</span></span></p>
                 </div>
-                <input type="number" id="goal-input" onchange="updateGoal()" class="w-16 text-right bg-transparent border-b border-gray-100 text-xs focus:outline-none text-gray-400" title="Set Budget Limit">
+                <input type="number" id="goal-input" onchange="updateGoal()" class="w-16 text-right bg-transparent border-b border-gray-300 dark:border-gray-700 text-xs focus:outline-none text-gray-600 dark:text-gray-400" title="Set Budget Limit">
             </div>
-            <div class="w-full h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+            <div class="w-full h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
                 <div id="goal-progress" class="h-full transition-all duration-1000 ease-in-out" style="width: 0%; background-color: #d8e8e0;"></div>
             </div>
         </div>
 
         <div class="pastel-card p-6 mb-8 border-t-4 border-[#d8e8e0]">
-            <p class="text-[9px] uppercase tracking-[0.2em] opacity-40 font-bold mb-1">Total Weekly Forecast</p>
+            <p class="text-[9px] uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400 font-bold mb-1">Total Weekly Forecast</p>
             <div class="flex justify-between items-center">
-                <p class="text-2xl font-light text-gray-600 dark:text-gray-200" id="weekly-spent-label">$0</p>
-                <p class="text-[8px] text-gray-400 uppercase italic">Mon - Sun Current Week</p>
+                <p class="text-2xl font-light text-gray-800 dark:text-gray-200" id="weekly-spent-label">$0</p>
+                <p class="text-[8px] text-gray-500 uppercase italic">Mon - Sun Current Week</p>
             </div>
         </div>
 
         <div class="pastel-card p-6 mb-8">
-            <h2 class="text-[10px] font-bold opacity-30 tracking-[0.15em] uppercase mb-4 text-center">Fixed Commitments</h2>
+            <h2 class="text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-[0.15em] uppercase mb-4 text-center">Fixed Commitments</h2>
             <div id="recurring-list" class="mb-4 max-h-32 overflow-y-auto px-1"></div>
             <form id="recurring-form" onsubmit="addRecurring(event)" class="space-y-2">
                 <div class="flex gap-2">
@@ -340,7 +362,7 @@
         </div>
 
         <div class="pastel-card p-8 mb-8">
-            <h2 class="text-[10px] font-bold opacity-30 tracking-[0.15em] uppercase mb-6">Manual Entry ✨</h2>
+            <h2 class="text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-[0.15em] uppercase mb-6">Manual Entry ✨</h2>
             <form id="expense-form" onsubmit="addExpense(event)" class="space-y-4">
                 <div class="grid grid-cols-2 gap-3">
                     <input type="number" id="amount" step="0.01" required placeholder="0.00" class="input-soft focus:outline-none">
@@ -361,22 +383,22 @@
 
         <div class="mb-12">
             <div class="text-center mb-6">
-                <h2 class="text-sm font-bold text-gray-500 uppercase tracking-widest">Adulting Tax</h2>
+                <h2 class="text-sm font-bold text-gray-600 dark:text-gray-500 uppercase tracking-widest">Adulting Tax</h2>
             </div>
             <div class="pastel-card p-8 mb-8 text-center">
                 <div class="h-44 relative"><canvas id="spendingChart"></canvas></div>
             </div>
             <div class="pastel-card p-8">
                 <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-[10px] font-bold opacity-30 tracking-[0.15em] uppercase">Latest Activity</h2>
-                    <button onclick="exportData()" class="text-[9px] font-bold opacity-40 uppercase hover:opacity-100 flex items-center gap-1">Export CSV ↓</button>
+                    <h2 class="text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-[0.15em] uppercase">Latest Activity</h2>
+                    <button onclick="exportData()" class="text-[9px] font-bold text-gray-500 dark:text-gray-400 uppercase hover:opacity-100 flex items-center gap-1">Export CSV ↓</button>
                 </div>
                 <div id="history-list"></div>
             </div>
         </div>
 
         <div class="pastel-card p-8 mb-8">
-            <h2 class="text-[10px] font-bold opacity-30 tracking-[0.15em] uppercase mb-4">Start New Saving Goal</h2>
+            <h2 class="text-[10px] font-bold text-gray-500 dark:text-gray-400 tracking-[0.15em] uppercase mb-4">Start New Saving Goal</h2>
             <form id="savings-form" onsubmit="addSavingGoal(event)" class="space-y-4">
                 <input type="text" id="saving-title" required placeholder="Glow Up / Holiday / Canon Event" class="w-full input-soft focus:outline-none">
                 <div class="grid grid-cols-2 gap-3">
@@ -390,8 +412,8 @@
         <div id="savings-list" class="mb-12"></div>
 
         <footer class="text-center pb-20">
-            <p class="text-[10px] opacity-20 uppercase tracking-[0.3em] mb-2">Cloud Synced</p>
-            <p class="text-xs font-semibold text-gray-300 italic">created by yours truly : Money.Reframed.</p>
+            <p class="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-[0.3em] mb-2">Cloud Synced</p>
+            <p class="text-xs font-semibold text-gray-400 dark:text-gray-700 italic">created by yours truly : Money.Reframed.</p>
         </footer>
     </div>
 
