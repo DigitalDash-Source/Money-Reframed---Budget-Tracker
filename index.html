@@ -41,13 +41,12 @@
         // Initialize Authentication
         const initAuth = async () => {
             try {
-                // Try to sign in. If it fails, we show a helpful message in the UI.
+                // Background silent sign-in
                 await signInAnonymously(auth);
-                document.getElementById('auth-status-overlay').classList.add('hidden');
             } catch (error) {
-                console.error("Auth failed:", error);
+                console.error("Firebase Auth failed:", error);
                 if (error.code === 'auth/configuration-not-found') {
-                    document.getElementById('auth-error-msg').innerText = "Action Required: Go to Firebase Console > Build > Authentication > Sign-in method, and enable 'Anonymous'.";
+                    console.warn("Anonymous auth not enabled in console.");
                 }
             }
         };
@@ -55,14 +54,12 @@
         onAuthStateChanged(auth, (u) => {
             user = u;
             if (user) {
-                document.getElementById('auth-status-overlay').classList.add('hidden');
                 setupDataListener();
             }
         });
 
         const setupDataListener = () => {
             if (!user) return;
-            // Public path for data as per mandatory rules
             const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'data');
             onSnapshot(userDocRef, (docSnap) => {
                 const data = docSnap.exists() ? docSnap.data() : { expenses: [], savings: [], recurring: [], goal: 1000 };
@@ -75,9 +72,7 @@
                 if (goalInput) goalInput.value = monthlyGoal;
                 renderUI();
             }, (error) => {
-                console.error("Firestore error. Check your Security Rules:", error);
-                document.getElementById('auth-status-overlay').classList.remove('hidden');
-                document.getElementById('auth-error-msg').innerText = "Firestore Error: Make sure you created the database in 'Test Mode'.";
+                console.error("Firestore error:", error);
             });
         };
 
@@ -290,20 +285,9 @@
         .dark-theme .btn-main { background: #3d3d4d; color: #d8c8c8; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: #e8d7d7; border-radius: 10px; }
-        #auth-status-overlay { backdrop-filter: blur(8px); }
     </style>
 </head>
 <body class="p-4 flex flex-col items-center">
-
-    <!-- Auth Error Screen -->
-    <div id="auth-status-overlay" class="fixed inset-0 z-50 bg-white bg-opacity-90 flex flex-col items-center justify-center p-8 text-center">
-        <div class="pastel-card p-10 max-w-sm">
-            <div class="mb-4 text-4xl">⚠️</div>
-            <h2 class="text-xl font-bold mb-4 text-gray-700">Setup Required</h2>
-            <p id="auth-error-msg" class="text-sm text-gray-500 mb-6">Connecting to your database...</p>
-            <p class="text-[10px] text-gray-400 uppercase tracking-widest">This screen will vanish once you enable "Anonymous" login in your Firebase Console.</p>
-        </div>
-    </div>
 
     <div class="w-full max-w-md">
         <header class="flex justify-between items-start mb-10 mt-6 px-2">
